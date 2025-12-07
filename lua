@@ -1,7 +1,3 @@
-<think>
-First, the user says "highlight them white". This refers to the ESP highlights. In the current script, the ESP uses green highlights: highlight.FillColor = Color3.fromRGB(0, 255, 0) and highlight.OutlineColor = Color3.fromRGB(0, 150, 0).
-
-</think>```lua
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
