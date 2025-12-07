@@ -76,10 +76,6 @@ local function createAimLockUI()
         else
             toggleButton.Text = "Enable Aim Lock"
             toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-            if aimlockConnection then
-                aimlockConnection:Disconnect()
-                aimlockConnection = nil
-            end
         end
     end)
 
@@ -105,7 +101,7 @@ local function destroyAimLockUI()
     end
 end
 
--- Aimlock Toggle (fixed for mobile: aims at closest player in view)
+-- Aimlock Toggle (fixed: connection managed only by master toggle)
 MainTab:CreateToggle({
     Name = "Aimlock (Accurate with Prediction)",
     CurrentValue = false,
