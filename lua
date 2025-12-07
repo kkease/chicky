@@ -105,7 +105,7 @@ local function destroyAimLockUI()
     end
 end
 
--- Aimlock Toggle (mobile-friendly, always active when enabled)
+-- Aimlock Toggle (fixed for mobile: aims at closest player in view)
 MainTab:CreateToggle({
     Name = "Aimlock (Accurate with Prediction)",
     CurrentValue = false,
@@ -114,18 +114,24 @@ MainTab:CreateToggle({
         aimLockEnabled = v
         if aimLockEnabled then
             createAimLockUI()
-            local function getClosestToCursor()
+            local function getClosestPlayerInView()
                 local closestPlayer = nil
                 local shortestDistance = math.huge
+                local cameraDirection = Camera.CFrame.LookVector
                 for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
-                        if onScreen then
-                            local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                            local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                            if dist < shortestDistance and dist < 300 then
-                                shortestDistance = dist
-                                closestPlayer = player
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local headPos = player.Character.Head.Position
+                        local directionToPlayer = (headPos - Camera.CFrame.Position).Unit
+                        local dotProduct = cameraDirection:Dot(directionToPlayer)
+                        if dotProduct > 0.5 then  -- Ensure player is in front (adjust for FOV)
+                            local pos, onScreen = Camera:WorldToViewportPoint(headPos)
+                            if onScreen then
+                                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                                local dist = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
+                                if dist < shortestDistance then
+                                    shortestDistance = dist
+                                    closestPlayer = player
+                                end
                             end
                         end
                     end
@@ -135,7 +141,7 @@ MainTab:CreateToggle({
 
             aimlockConnection = RunService.RenderStepped:Connect(function()
                 if aimLockEnabled then
-                    local target = getClosestToCursor()
+                    local target = getClosestPlayerInView()
                     if target and target.Character and target.Character:FindFirstChild("Head") then
                         local targetPart = target.Character.Head
                         local current = Camera.CFrame
