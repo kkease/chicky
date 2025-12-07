@@ -12,6 +12,23 @@ local nameTagsEnabled = false
 local aimlockConnection
 local aimLockUI = nil  -- For the on-screen aimlock toggle
 
+-- ESP Data and Settings (based on the provided ESP code)
+local espData = {} --> player -> { highlight, nameGui, healthGui, attachments = {att0, att1, beam}, connections = {characterAdded, humanoidChanged, cleanup...}}
+local ENABLE_HIGHLIGHT = true
+local ENABLE_NAMETAG = true
+local ENABLE_HEALTHBAR = true
+local ENABLE_DISTANCE = true
+local ENABLE_TRACERS = true
+local NAME_TAG_SIZE = UDim2.new(0, 180, 0, 36)
+local HEALTHBAR_SIZE = UDim2.new(0, 100, 0, 12)
+local HEALTHBAR_OFFSET = Vector3.new(0, 2.6, 0)
+local NAMETAG_OFFSET = Vector3.new(0, 2.9, 0)
+local TRACER_WIDTH0 = 0.06
+local TRACER_WIDTH1 = 0.06
+local TRACER_COLOR = Color3.fromRGB(0, 255, 0)
+local HIGHLIGHT_FILL = Color3.fromRGB(0, 255, 0)
+local HIGHLIGHT_OUTLINE = Color3.fromRGB(0, 150, 0)
+
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
@@ -43,6 +60,237 @@ local Window = Rayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Main", 4483362458)
 local ExtraTab = Window:CreateTab("Extras", 4483362458)  -- New tab for additional features
+
+-- ESP Helper Functions (adapted from the provided code)
+local function createHighlightForCharacter(character)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.Adornee = character
+    highlight.FillColor = HIGHLIGHT_FILL
+    highlight.OutlineColor = HIGHLIGHT_OUTLINE
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = character
+    return highlight
+end
+
+local function createNameTag(player, character)
+    local head = character:FindFirstChild("Head")
+    if not head then return nil end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_NameTag"
+    billboard.Adornee = head
+    billboard.Size = NAME_TAG_SIZE
+    billboard.StudsOffset = NAMETAG_OFFSET
+    billboard.AlwaysOnTop = true
+    billboard.ResetOnSpawn = false
+    billboard.Parent = player:WaitForChild("PlayerGui")
+
+    local text = Instance.new("TextLabel")
+    text.Name = "ESP_NameLabel"
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.TextColor3 = Color3.new(1, 1, 1)
+    text.TextStrokeTransparency = 0
+    text.Font = Enum.Font.GothamBold
+    text.TextScaled = true
+    text.Text = player.Name
+    text.Parent = billboard
+
+    return billboard, text
+end
+
+local function createHealthBar(player, character)
+    local head = character:FindFirstChild("Head")
+    if not head then return nil end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_HealthBar"
+    billboard.Adornee = head
+    billboard.Size = HEALTHBAR_SIZE
+    billboard.StudsOffset = HEALTHBAR_OFFSET
+    billboard.AlwaysOnTop = true
+    billboard.ResetOnSpawn = false
+    billboard.Parent = player:WaitForChild("PlayerGui")
+
+    local outer = Instance.new("Frame")
+    outer.Name = "Outer"
+    outer.Size = UDim2.new(1, 0, 1, 0)
+    outer.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    outer.BorderSizePixel = 0
+    outer.Parent = billboard
+
+    local fill = Instance.new("Frame")
+    fill.Name = "Fill"
+    fill.Size = UDim2.new(1, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+    fill.BorderSizePixel = 0
+    fill.Parent = outer
+
+    return billboard, fill
+end
+
+local function createTracer(localRoot, targetRoot)
+    if not (localRoot and targetRoot) then return nil end
+
+    local att0 = Instance.new("Attachment")
+    att0.Name = "ESP_Att0"
+    att0.Position = Vector3.new(0, 0.75, 0)
+    att0.Parent = localRoot
+
+    local att1 = Instance.new("Attachment")
+    att1.Name = "ESP_Att1"
+    att1.Position = Vector3.new(0, 0.75, 0)
+    att1.Parent = targetRoot
+
+    local beam = Instance.new("Beam")
+    beam.Name = "ESP_Beam"
+    beam.Attachment0 = att0
+    beam.Attachment1 = att1
+    beam.FaceCamera = true
+    beam.Width0 = TRACER_WIDTH0
+    beam.Width1 = TRACER_WIDTH1
+    beam.Color = ColorSequence.new(TRACER_COLOR)
+    beam.LightEmission = 0.5
+    beam.Parent = localRoot
+    return {att0 = att0, att1 = att1, beam = beam}
+end
+
+local function cleanupESPForPlayer(player)
+    local data = espData[player]
+    if not data then return end
+
+    if data.connections then
+        for _, conn in pairs(data.connections) do
+            if conn and conn.Disconnect then
+                conn:Disconnect()
+            elseif conn and conn.disconnect then
+                conn:disconnect()
+            end
+        end
+    end
+
+    if data.highlight and data.highlight.Parent then
+        data.highlight:Destroy()
+    end
+
+    if player:FindFirstChild("PlayerGui") then
+        local pg = player.PlayerGui
+        for _, name in ipairs({"ESP_NameTag", "ESP_HealthBar"}) do
+            local obj = pg:FindFirstChild(name)
+            if obj then obj:Destroy() end
+        end
+    end
+
+    if data.attachments then
+        if data.attachments.att0 and data.attachments.att0.Parent then data.attachments.att0:Destroy() end
+        if data.attachments.att1 and data.attachments.att1.Parent then data.attachments.att1:Destroy() end
+        if data.attachments.beam and data.attachments.beam.Parent then data.attachments.beam:Destroy() end
+    end
+
+    espData[player] = nil
+end
+
+local function setupESPForPlayer(player)
+    if player == LocalPlayer then return end
+    if espData[player] then return end
+
+    local data = { connections = {} }
+    espData[player] = data
+
+    local function onCharacter(character)
+        if data.highlight and data.highlight.Parent then
+            data.highlight:Destroy()
+            data.highlight = nil
+        end
+        if player:FindFirstChild("PlayerGui") then
+            for _, name in ipairs({"ESP_NameTag", "ESP_HealthBar"}) do
+                local existing = player.PlayerGui:FindFirstChild(name)
+                if existing then existing:Destroy() end
+            end
+        end
+        if data.attachments then
+            if data.attachments.att0 and data.attachments.att0.Parent then data.attachments.att0:Destroy() end
+            if data.attachments.att1 and data.attachments.att1.Parent then data.attachments.att1:Destroy() end
+            if data.attachments.beam and data.attachments.beam.Parent then data.attachments.beam:Destroy() end
+            data.attachments = nil
+        end
+
+        if not character then return end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        local head = character:FindFirstChild("Head")
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not (hrp and head and humanoid) then return end
+
+        if ENABLE_HIGHLIGHT then
+            data.highlight = createHighlightForCharacter(character)
+        end
+
+        if ENABLE_NAMETAG then
+            local billboard, textLabel = createNameTag(player, character)
+            data.nameGui = billboard
+            data.nameText = textLabel
+        end
+
+        if ENABLE_HEALTHBAR then
+            local healthGui, healthFill = createHealthBar(player, character)
+            data.healthGui = healthGui
+            data.healthFill = healthFill
+        end
+
+        if ENABLE_TRACERS then
+            local localRoot = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) or nil
+            if localRoot then
+                data.attachments = createTracer(localRoot, hrp)
+            end
+        end
+
+        local conn = RunService.RenderStepped:Connect(function()
+            if not player or not player.Parent or not player.Character or not player.Character.PrimaryPart then
+                return
+            end
+
+            if data.nameText and data.nameText.Parent and ENABLE_DISTANCE then
+                local localHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if localHRP and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local dist = (localHRP.Position - player.Character.HumanoidRootPart.Position).Magnitude
+                    local display = player.Name .. " [" .. tostring(math.floor(dist)) .. "m]"
+                    data.nameText.Text = display
+                end
+            end
+
+            if data.healthFill and player.Character and player.Character:FindFirstChildOfClass("Humanoid") and ENABLE_HEALTHBAR then
+                local hum = player.Character:FindFirstChildOfClass("Humanoid")
+                local maxHealth = math.max(hum.MaxHealth, 1)
+                local frac = math.clamp(hum.Health / maxHealth, 0, 1)
+                data.healthFill.Size = UDim2.new(frac, 0, 1, 0)
+                if frac > 0.6 then
+                    data.healthFill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+                elseif frac > 0.3 then
+                    data.healthFill.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+                else
+                    data.healthFill.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+                end
+            end
+        end)
+
+        table.insert(data.connections, conn)
+    end
+
+    local charConn = player.CharacterAdded:Connect(onCharacter)
+    table.insert(data.connections, charConn)
+
+    if player.Character then
+        onCharacter(player.Character)
+    end
+end
+
+local function cleanupAllESP()
+    for player, _ in pairs(espData) do
+        cleanupESPForPlayer(player)
+    end
+end
 
 -- Function to create aimlock UI
 local function createAimLockUI()
@@ -220,225 +468,4 @@ MainTab:CreateToggle({
     end
 })
 
--- Jump Power
-MainTab:CreateSlider({
-    Name = "Jump Power",
-    Range = {0, 200},  -- Increased range
-    Increment = 1,
-    CurrentValue = 50,
-    Flag = "JumpPowerSlider",
-    Callback = function(Value)
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            LocalPlayer.Character.Humanoid.JumpPower = Value
-        end
-    end
-})
-
--- Allow Jump Button
-MainTab:CreateButton({
-    Name = "Allow Jump (Infinite)",
-    Callback = function()
-        UserInputService.JumpRequest:Connect(function()
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-                LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end)
-    end,
-})
-
--- ESP Toggle (enhanced)
-MainTab:CreateToggle({
-    Name = "ESP (Green Highlights & Name Tags)",
-    CurrentValue = false,
-    Flag = "ESPEnabled",
-    Callback = function(state)
-        espEnabled = state
-        local function setupESP(character, player)
-            if character:FindFirstChild("ESP_Highlight") then
-                character.ESP_Highlight:Destroy()
-            end
-            if character:FindFirstChild("NameTag") then
-                character.NameTag:Destroy()
-            end
-            if espEnabled then
-                local highlight = Instance.new("Highlight")
-                highlight.Name = "ESP_Highlight"
-                highlight.Adornee = character
-                highlight.FillColor = Color3.fromRGB(0, 255, 0)
-                highlight.OutlineColor = Color3.fromRGB(0, 150, 0)
-                highlight.Parent = character
-
-                local billboard = Instance.new("BillboardGui")
-                billboard.Name = "NameTag"
-                billboard.Size = UDim2.new(0, 200, 0, 50)
-                billboard.Adornee = character:WaitForChild("Head")
-                billboard.AlwaysOnTop = true
-                billboard.Parent = character
-
-                local text = Instance.new("TextLabel")
-                text.Size = UDim2.new(1, 0, 1, 0)
-                text.BackgroundTransparency = 1
-                text.TextColor3 = Color3.new(1, 1, 1)
-                text.TextStrokeTransparency = 0
-                text.Font = Enum.Font.SourceSansBold
-                text.TextScaled = true
-                text.Text = player.Name .. " [" .. math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude) .. "m]"
-                text.Parent = billboard
-            end
-        end
-
-        local function onCharacterAdded(character, player)
-            if espEnabled then
-                setupESP(character, player)
-            end
-        end
-
-        for _, player in ipairs(Players:GetPlayers()) do
-            player.CharacterAdded:Connect(function(character)
-                onCharacterAdded(character, player)
-            end)
-            if player.Character then
-                onCharacterAdded(player.Character, player)
-            end
-        end
-
-        Players.PlayerAdded:Connect(function(player)
-            player.CharacterAdded:Connect(function(character)
-                onCharacterAdded(character, player)
-            end)
-        end)
-    end
-})
-
--- Tracers Toggle (enhanced with removal)
-MainTab:CreateToggle({
-    Name = "Tracers",
-    CurrentValue = false,
-    Flag = "TracersEnabled",
-    Callback = function(state)
-        tracersEnabled = state
-        if not state then
-            for _, player in pairs(Players:GetPlayers()) do
-                if player.Character and player.Character:FindFirstChild("TracerLine") then
-                    player.Character.TracerLine:Destroy()
-                end
-            end
-        end
-    end
-})
-
--- Instant Proximity Prompts
-ExtraTab:CreateButton({
-    Name = "Instant Proximity Prompts",
-    Callback = function()
-        local function makeInstant(prompt)
-            if prompt:IsA("ProximityPrompt") then
-                prompt.HoldDuration = 0
-            end
-        end
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            makeInstant(obj)
-        end
-        workspace.DescendantAdded:Connect(makeInstant)
-    end,
-})
-
--- Teleport Buttons
-ExtraTab:CreateButton({
-    Name = "Tp to Apt",
-    Callback = function()
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hrp = char:WaitForChild("HumanoidRootPart")
-        hrp.CFrame = CFrame.new(-122, 3, -663)
-    end,
-})
-
-ExtraTab:CreateButton({
-    Name = "Tp to Cookers",
-    Callback = function()
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hrp = char:WaitForChild("HumanoidRootPart")
-        hrp.CFrame = CFrame.new(-331, 3, -430)
-    end,
-})
-
-ExtraTab:CreateButton({
-    Name = "Tp to MM",
-    Callback = function()
-        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hrp = char:WaitForChild("HumanoidRootPart")
-        hrp.CFrame = CFrame.new(-443, 3, -772)
-    end,
-})
-
--- New Feature: Fly Mode
-ExtraTab:CreateToggle({
-    Name = "Fly Mode",
-    CurrentValue = false,
-    Flag = "FlyEnabled",
-    Callback = function(state)
-        if state then
-            local char = LocalPlayer.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                local bodyVelocity = Instance.new("BodyVelocity")
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-                bodyVelocity.Parent = char.HumanoidRootPart
-
-                local flyConnection
-                flyConnection = RunService.RenderStepped:Connect(function()
-                    if not state then flyConnection:Disconnect() return end
-                    local moveDirection = Vector3.new()
-                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection = moveDirection + Camera.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection = moveDirection - Camera.CFrame.LookVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection = moveDirection - Camera.CFrame.RightVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection = moveDirection + Camera.CFrame.RightVector end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDirection = moveDirection + Vector3.new(0, 1, 0) end
-                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDirection = moveDirection - Vector3.new(0, 1, 0) end
-                    bodyVelocity.Velocity = moveDirection * 50
-                end)
-            end
-        else
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                local bv = LocalPlayer.Character.HumanoidRootPart:FindFirstChild("BodyVelocity")
-                if bv then bv:Destroy() end
-            end
-        end
-    end
-})
-
--- RenderStepped for Tracers and ESP updates
-RunService.RenderStepped:Connect(function()
-    if tracersEnabled then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                local tracer = player.Character:FindFirstChild("TracerLine")
-                if not tracer then
-                    local beam = Instance.new("Beam")
-                    beam.Name = "TracerLine"
-                    beam.FaceCamera = true
-                    beam.Color = ColorSequence.new(Color3.new(0, 1, 0))
-                    beam.Width0 = 0.1
-                    beam.Width1 = 0.1
-
-                    local att0 = Instance.new("Attachment", LocalPlayer.Character.HumanoidRootPart)
-                    local att1 = Instance.new("Attachment", player.Character.HumanoidRootPart)
-
-                    beam.Attachment0 = att0
-                    beam.Attachment1 = att1
-                    beam.Parent = player.Character
-                end
-            end
-        end
-    end
-
-    -- Update ESP distances
-    if espEnabled then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character.Head:FindFirstChild("NameTag") then
-                local text = player.Character.Head.NameTag.TextLabel
-                text.Text = player.Name .. " [" .. math.floor((LocalPlayer.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude) .. "m]"
-            end
-        end
-    end
-end)
+--
