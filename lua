@@ -70,6 +70,36 @@ local function createAimLockUI()
         if aimLockEnabled then
             toggleButton.Text = "Disable Aim Lock"
             toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            -- Restart connection if it was disconnected
+            if not aimlockConnection then
+                local function getClosestToCursor()
+                    local closestPlayer = nil
+                    local shortestDistance = math.huge
+                    for _, player in pairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                            if onScreen then
+                                local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                                local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                                if dist < shortestDistance then
+                                    shortestDistance = dist
+                                    closestPlayer = player
+                                end
+                            end
+                        end
+                    end
+                    return closestPlayer
+                end
+
+                aimlockConnection = RunService.RenderStepped:Connect(function()
+                    if aimLockEnabled then
+                        local target = getClosestToCursor()
+                        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                            Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position)
+                        end
+                    end
+                end)
+            end
         else
             toggleButton.Text = "Enable Aim Lock"
             toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
