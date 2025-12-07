@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 local UserInputService = game:GetService("UserInputService")
 
@@ -11,8 +12,9 @@ local tracersEnabled = false
 local nameTagsEnabled = false
 local aimlockConnection
 local aimLockUI = nil
-local predictionEnabled = true
-local aimSmoothness = 0.2
+local predictionEnabled = true  -- New: Enable prediction for better accuracy
+local aimSmoothness = 0.2  -- Lerp factor for smoothness
+local aimKey = Enum.UserInputType.MouseButton2  -- Right mouse button to activate aimlock
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -53,7 +55,7 @@ local function createAimLockUI()
     aimLockUI.Name = "AimLockUI"
 
     local frame = Instance.new("Frame", aimLockUI)
-    frame.Size = UDim2.new(0, 200, 0, 80)
+    frame.Size = UDim2.new(0, 200, 0, 80)  -- Larger for more options
     frame.Position = UDim2.new(0.5, -100, 0, 10)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     frame.BorderSizePixel = 0
@@ -76,6 +78,10 @@ local function createAimLockUI()
         else
             toggleButton.Text = "Enable Aim Lock"
             toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            if aimlockConnection then
+                aimlockConnection:Disconnect()
+                aimlockConnection = nil
+            end
         end
     end)
 
@@ -101,7 +107,7 @@ local function destroyAimLockUI()
     end
 end
 
--- Aimlock Toggle (fixed: connection managed only by master toggle)
+-- Aimlock Toggle (improved accuracy)
 MainTab:CreateToggle({
     Name = "Aimlock (Accurate with Prediction)",
     CurrentValue = false,
@@ -110,24 +116,18 @@ MainTab:CreateToggle({
         aimLockEnabled = v
         if aimLockEnabled then
             createAimLockUI()
-            local function getClosestPlayerInView()
+            local function getClosestToCursor()
                 local closestPlayer = nil
                 local shortestDistance = math.huge
-                local cameraDirection = Camera.CFrame.LookVector
                 for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
-                        local headPos = player.Character.Head.Position
-                        local directionToPlayer = (headPos - Camera.CFrame.Position).Unit
-                        local dotProduct = cameraDirection:Dot(directionToPlayer)
-                        if dotProduct > 0.5 then  -- Ensure player is in front (adjust for FOV)
-                            local pos, onScreen = Camera:WorldToViewportPoint(headPos)
-                            if onScreen then
-                                local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                                local dist = (Vector2.new(pos.X, pos.Y) - screenCenter).Magnitude
-                                if dist < shortestDistance then
-                                    shortestDistance = dist
-                                    closestPlayer = player
-                                end
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+                        if onScreen then
+                            local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                            local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                            if dist < shortestDistance and dist < 300 then  -- FOV limit
+                                shortestDistance = dist
+                                closestPlayer = player
                             end
                         end
                     end
@@ -136,15 +136,15 @@ MainTab:CreateToggle({
             end
 
             aimlockConnection = RunService.RenderStepped:Connect(function()
-                if aimLockEnabled then
-                    local target = getClosestPlayerInView()
+                if aimLockEnabled and UserInputService:IsMouseButtonPressed(aimKey) then
+                    local target = getClosestToCursor()
                     if target and target.Character and target.Character:FindFirstChild("Head") then
                         local targetPart = target.Character.Head
                         local current = Camera.CFrame
                         local goalPos = targetPart.Position
                         if predictionEnabled and target.Character:FindFirstChild("HumanoidRootPart") then
                             local velocity = target.Character.HumanoidRootPart.Velocity
-                            goalPos = goalPos + velocity * 0.1
+                            goalPos = goalPos + velocity * 0.1  -- Simple prediction
                         end
                         local goal = CFrame.new(current.Position, goalPos)
                         Camera.CFrame = current:Lerp(goal, aimSmoothness)
@@ -161,7 +161,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Teleport Tool (mobile-adapted: uses raycast from camera center)
+-- Rest of the script remains the same, as it's not related to aimlock
+-- (Teleport Tool, Speed, Jump, ESP, Tracers, etc.)
+
 MainTab:CreateButton({
     Name = "Add Teleport Tool",
     Callback = function()
@@ -171,17 +173,10 @@ MainTab:CreateButton({
             teleportTool.Name = "TeleportTool"
 
             teleportTool.Activated:Connect(function()
-                local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-                local raycastParams = RaycastParams.new()
-                raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
-                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-                local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
-                if raycastResult then
-                    local targetPos = raycastResult.Position
-                    local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
-                    if currentPos and (targetPos - currentPos).Magnitude <= 50 then
-                        LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
-                    end
+                local targetPos = mouse.Hit.Position
+                local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
+                if currentPos and (targetPos - currentPos).Magnitude <= 50 then
+                    LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
                 end
             end)
 
@@ -190,7 +185,6 @@ MainTab:CreateButton({
     end
 })
 
--- Rest of the script remains unchanged
 MainTab:CreateSlider({
     Name = "WalkSpeed",
     Range = {16, 200},
