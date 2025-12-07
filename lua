@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
-local mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 local UserInputService = game:GetService("UserInputService")
 
@@ -11,10 +10,7 @@ local espEnabled = false
 local tracersEnabled = false
 local nameTagsEnabled = false
 local aimlockConnection
-local aimLockUI = nil
-local predictionEnabled = true  -- New: Enable prediction for better accuracy
-local aimSmoothness = 0.2  -- Lerp factor for smoothness
-local aimKey = Enum.UserInputType.MouseButton2  -- Right mouse button to activate aimlock
+local aimLockUI = nil  -- For the on-screen aimlock toggle
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -41,12 +37,12 @@ local Window = Rayfield:CreateWindow({
         FileName = "SaifUltimateChicoKeyAccess",
         SaveKey = false,
         GrabKeyFromSite = false,
-        Key = { "615879", "2124267" }
+        Key = { "615879", "2124267" }  -- Combined keys
     }
 })
 
 local MainTab = Window:CreateTab("Main", 4483362458)
-local ExtraTab = Window:CreateTab("Extras", 4483362458)
+local ExtraTab = Window:CreateTab("Extras", 4483362458)  -- New tab for additional features
 
 -- Function to create aimlock UI
 local function createAimLockUI()
@@ -55,16 +51,15 @@ local function createAimLockUI()
     aimLockUI.Name = "AimLockUI"
 
     local frame = Instance.new("Frame", aimLockUI)
-    frame.Size = UDim2.new(0, 200, 0, 80)  -- Larger for more options
-    frame.Position = UDim2.new(0.5, -100, 0, 10)
+    frame.Size = UDim2.new(0, 150, 0, 60)
+    frame.Position = UDim2.new(0.5, -75, 0, 10)
     frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     frame.BorderSizePixel = 0
     frame.Active = true
     frame.Draggable = true
 
     local toggleButton = Instance.new("TextButton", frame)
-    toggleButton.Size = UDim2.new(1, 0, 0.5, 0)
-    toggleButton.Position = UDim2.new(0, 0, 0, 0)
+    toggleButton.Size = UDim2.new(1, 0, 1, 0)
     toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
     toggleButton.Text = "Disable Aim Lock"
     toggleButton.TextColor3 = Color3.new(1, 1, 1)
@@ -84,20 +79,6 @@ local function createAimLockUI()
             end
         end
     end)
-
-    local predictionToggle = Instance.new("TextButton", frame)
-    predictionToggle.Size = UDim2.new(1, 0, 0.5, 0)
-    predictionToggle.Position = UDim2.new(0, 0, 0.5, 0)
-    predictionToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    predictionToggle.Text = "Prediction: ON"
-    predictionToggle.TextColor3 = Color3.new(0, 0, 0)
-    predictionToggle.TextScaled = true
-
-    predictionToggle.MouseButton1Click:Connect(function()
-        predictionEnabled = not predictionEnabled
-        predictionToggle.Text = predictionEnabled and "Prediction: ON" or "Prediction: OFF"
-        predictionToggle.BackgroundColor3 = predictionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-    end)
 end
 
 local function destroyAimLockUI()
@@ -107,9 +88,9 @@ local function destroyAimLockUI()
     end
 end
 
--- Aimlock Toggle (improved accuracy)
+-- Aimlock Toggle (improved)
 MainTab:CreateToggle({
-    Name = "Aimlock (Accurate with Prediction)",
+    Name = "Aimlock (with On-Screen Toggle)",
     CurrentValue = false,
     Flag = "AimlockEnabled",
     Callback = function(v)
@@ -120,12 +101,12 @@ MainTab:CreateToggle({
                 local closestPlayer = nil
                 local shortestDistance = math.huge
                 for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
                         if onScreen then
                             local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                             local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                            if dist < shortestDistance and dist < 300 then  -- FOV limit
+                            if dist < shortestDistance then
                                 shortestDistance = dist
                                 closestPlayer = player
                             end
@@ -136,18 +117,10 @@ MainTab:CreateToggle({
             end
 
             aimlockConnection = RunService.RenderStepped:Connect(function()
-                if aimLockEnabled and UserInputService:IsMouseButtonPressed(aimKey) then
+                if aimLockEnabled then
                     local target = getClosestToCursor()
-                    if target and target.Character and target.Character:FindFirstChild("Head") then
-                        local targetPart = target.Character.Head
-                        local current = Camera.CFrame
-                        local goalPos = targetPart.Position
-                        if predictionEnabled and target.Character:FindFirstChild("HumanoidRootPart") then
-                            local velocity = target.Character.HumanoidRootPart.Velocity
-                            goalPos = goalPos + velocity * 0.1  -- Simple prediction
-                        end
-                        local goal = CFrame.new(current.Position, goalPos)
-                        Camera.CFrame = current:Lerp(goal, aimSmoothness)
+                    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position)
                     end
                 end
             end)
@@ -161,9 +134,7 @@ MainTab:CreateToggle({
     end,
 })
 
--- Rest of the script remains the same, as it's not related to aimlock
--- (Teleport Tool, Speed, Jump, ESP, Tracers, etc.)
-
+-- Teleport Tool (mobile-adapted: uses raycast from camera center)
 MainTab:CreateButton({
     Name = "Add Teleport Tool",
     Callback = function()
@@ -173,10 +144,17 @@ MainTab:CreateButton({
             teleportTool.Name = "TeleportTool"
 
             teleportTool.Activated:Connect(function()
-                local targetPos = mouse.Hit.Position
-                local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
-                if currentPos and (targetPos - currentPos).Magnitude <= 50 then
-                    LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+                local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+                if raycastResult then
+                    local targetPos = raycastResult.Position
+                    local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
+                    if currentPos and (targetPos - currentPos).Magnitude <= 50 then
+                        LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+                    end
                 end
             end)
 
@@ -185,9 +163,10 @@ MainTab:CreateButton({
     end
 })
 
+-- Speed Control
 MainTab:CreateSlider({
     Name = "WalkSpeed",
-    Range = {16, 200},
+    Range = {16, 200},  -- Increased range
     Increment = 1,
     CurrentValue = 16,
     Flag = "SpeedSlider",
@@ -198,6 +177,7 @@ MainTab:CreateSlider({
     end
 })
 
+-- Jump Enable
 MainTab:CreateToggle({
     Name = "Enable Jump",
     CurrentValue = false,
@@ -210,9 +190,10 @@ MainTab:CreateToggle({
     end
 })
 
+-- Jump Power
 MainTab:CreateSlider({
     Name = "Jump Power",
-    Range = {0, 200},
+    Range = {0, 200},  -- Increased range
     Increment = 1,
     CurrentValue = 50,
     Flag = "JumpPowerSlider",
@@ -223,6 +204,7 @@ MainTab:CreateSlider({
     end
 })
 
+-- Allow Jump Button
 MainTab:CreateButton({
     Name = "Allow Jump (Infinite)",
     Callback = function()
@@ -234,6 +216,7 @@ MainTab:CreateButton({
     end,
 })
 
+-- ESP Toggle (enhanced)
 MainTab:CreateToggle({
     Name = "ESP (Green Highlights & Name Tags)",
     CurrentValue = false,
@@ -297,6 +280,7 @@ MainTab:CreateToggle({
     end
 })
 
+-- Tracers Toggle (enhanced with removal)
 MainTab:CreateToggle({
     Name = "Tracers",
     CurrentValue = false,
@@ -313,6 +297,7 @@ MainTab:CreateToggle({
     end
 })
 
+-- Instant Proximity Prompts
 ExtraTab:CreateButton({
     Name = "Instant Proximity Prompts",
     Callback = function()
@@ -328,6 +313,7 @@ ExtraTab:CreateButton({
     end,
 })
 
+-- Teleport Buttons
 ExtraTab:CreateButton({
     Name = "Tp to Apt",
     Callback = function()
@@ -355,6 +341,7 @@ ExtraTab:CreateButton({
     end,
 })
 
+-- New Feature: Fly Mode
 ExtraTab:CreateToggle({
     Name = "Fly Mode",
     CurrentValue = false,
@@ -390,6 +377,7 @@ ExtraTab:CreateToggle({
     end
 })
 
+-- RenderStepped for Tracers and ESP updates
 RunService.RenderStepped:Connect(function()
     if tracersEnabled then
         for _, player in pairs(Players:GetPlayers()) do
@@ -414,6 +402,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
+    -- Update ESP distances
     if espEnabled then
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character.Head:FindFirstChild("NameTag") then
