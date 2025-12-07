@@ -1,8 +1,8 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
-local mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
 
 local aimLockEnabled = false
 local teleportTool = nil
@@ -10,6 +10,9 @@ local espEnabled = false
 local tracersEnabled = false
 local nameTagsEnabled = false
 local aimlockConnection
+local aimLockUI = nil
+local predictionEnabled = true
+local aimSmoothness = 0.2
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -21,45 +24,106 @@ if not success or not Rayfield then
 end
 
 local Window = Rayfield:CreateWindow({
-    Name = "Saif's ChicoBlocko Toolkit",
+    Name = "Saif's Ultimate ChicoBlocko Toolkit",
     LoadingTitle = "Loading...",
-    LoadingSubtitle = "Powered by Rayfield",
+    LoadingSubtitle = "Powered by Rayfield - Enhanced Edition",
     ConfigurationSaving = {
         Enabled = true,
-        FileName = "SaifChicoToolkitConfig"
+        FileName = "SaifUltimateChicoToolkitConfig"
     },
     Discord = { Enabled = false },
     KeySystem = true,
     KeySettings = {
         Title = "Access Required",
         Subtitle = "Enter the key to unlock",
-        FileName = "SaifChicoKeyAccess",
+        FileName = "SaifUltimateChicoKeyAccess",
         SaveKey = false,
         GrabKeyFromSite = false,
-        Key = { "615879", "2124267" }  -- Combined keys from both scripts
+        Key = { "615879", "2124267" }
     }
 })
 
 local MainTab = Window:CreateTab("Main", 4483362458)
+local ExtraTab = Window:CreateTab("Extras", 4483362458)
 
--- Aimlock Toggle (from Script 2, improved)
+-- Function to create aimlock UI
+local function createAimLockUI()
+    if aimLockUI then return end
+    aimLockUI = Instance.new("ScreenGui", game.CoreGui)
+    aimLockUI.Name = "AimLockUI"
+
+    local frame = Instance.new("Frame", aimLockUI)
+    frame.Size = UDim2.new(0, 200, 0, 80)
+    frame.Position = UDim2.new(0.5, -100, 0, 10)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+
+    local toggleButton = Instance.new("TextButton", frame)
+    toggleButton.Size = UDim2.new(1, 0, 0.5, 0)
+    toggleButton.Position = UDim2.new(0, 0, 0, 0)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    toggleButton.Text = "Disable Aim Lock"
+    toggleButton.TextColor3 = Color3.new(1, 1, 1)
+    toggleButton.TextScaled = true
+
+    toggleButton.MouseButton1Click:Connect(function()
+        aimLockEnabled = not aimLockEnabled
+        if aimLockEnabled then
+            toggleButton.Text = "Disable Aim Lock"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        else
+            toggleButton.Text = "Enable Aim Lock"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            if aimlockConnection then
+                aimlockConnection:Disconnect()
+                aimlockConnection = nil
+            end
+        end
+    end)
+
+    local predictionToggle = Instance.new("TextButton", frame)
+    predictionToggle.Size = UDim2.new(1, 0, 0.5, 0)
+    predictionToggle.Position = UDim2.new(0, 0, 0.5, 0)
+    predictionToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    predictionToggle.Text = "Prediction: ON"
+    predictionToggle.TextColor3 = Color3.new(0, 0, 0)
+    predictionToggle.TextScaled = true
+
+    predictionToggle.MouseButton1Click:Connect(function()
+        predictionEnabled = not predictionEnabled
+        predictionToggle.Text = predictionEnabled and "Prediction: ON" or "Prediction: OFF"
+        predictionToggle.BackgroundColor3 = predictionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+    end)
+end
+
+local function destroyAimLockUI()
+    if aimLockUI then
+        aimLockUI:Destroy()
+        aimLockUI = nil
+    end
+end
+
+-- Aimlock Toggle (mobile-friendly, always active when enabled)
 MainTab:CreateToggle({
-    Name = "Aimlock",
+    Name = "Aimlock (Accurate with Prediction)",
     CurrentValue = false,
     Flag = "AimlockEnabled",
     Callback = function(v)
         aimLockEnabled = v
         if aimLockEnabled then
+            createAimLockUI()
             local function getClosestToCursor()
                 local closestPlayer = nil
                 local shortestDistance = math.huge
                 for _, player in pairs(Players:GetPlayers()) do
-                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+                    if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+                        local pos, onScreen = Camera:WorldToViewportPoint(player.Character.Head.Position)
                         if onScreen then
                             local mousePos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
                             local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                            if dist < shortestDistance then
+                            if dist < shortestDistance and dist < 300 then
                                 shortestDistance = dist
                                 closestPlayer = player
                             end
@@ -72,12 +136,21 @@ MainTab:CreateToggle({
             aimlockConnection = RunService.RenderStepped:Connect(function()
                 if aimLockEnabled then
                     local target = getClosestToCursor()
-                    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position)
+                    if target and target.Character and target.Character:FindFirstChild("Head") then
+                        local targetPart = target.Character.Head
+                        local current = Camera.CFrame
+                        local goalPos = targetPart.Position
+                        if predictionEnabled and target.Character:FindFirstChild("HumanoidRootPart") then
+                            local velocity = target.Character.HumanoidRootPart.Velocity
+                            goalPos = goalPos + velocity * 0.1
+                        end
+                        local goal = CFrame.new(current.Position, goalPos)
+                        Camera.CFrame = current:Lerp(goal, aimSmoothness)
                     end
                 end
             end)
         else
+            destroyAimLockUI()
             if aimlockConnection then
                 aimlockConnection:Disconnect()
                 aimlockConnection = nil
@@ -86,7 +159,7 @@ MainTab:CreateToggle({
     end,
 })
 
--- Teleport Tool (from Script 1)
+-- Teleport Tool (mobile-adapted: uses raycast from camera center)
 MainTab:CreateButton({
     Name = "Add Teleport Tool",
     Callback = function()
@@ -96,10 +169,17 @@ MainTab:CreateButton({
             teleportTool.Name = "TeleportTool"
 
             teleportTool.Activated:Connect(function()
-                local targetPos = mouse.Hit.Position
-                local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
-                if currentPos and (targetPos - currentPos).Magnitude <= 50 then
-                    LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+                local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+                if raycastResult then
+                    local targetPos = raycastResult.Position
+                    local currentPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
+                    if currentPos and (targetPos - currentPos).Magnitude <= 50 then
+                        LocalPlayer.Character:SetPrimaryPartCFrame(CFrame.new(targetPos + Vector3.new(0, 3, 0)))
+                    end
                 end
             end)
 
@@ -108,10 +188,10 @@ MainTab:CreateButton({
     end
 })
 
--- Speed Control (combined from both)
+-- Rest of the script remains unchanged
 MainTab:CreateSlider({
     Name = "WalkSpeed",
-    Range = {16, 100},
+    Range = {16, 200},
     Increment = 1,
     CurrentValue = 16,
     Flag = "SpeedSlider",
@@ -122,7 +202,6 @@ MainTab:CreateSlider({
     end
 })
 
--- Jump Enable (from Script 1)
 MainTab:CreateToggle({
     Name = "Enable Jump",
     CurrentValue = false,
@@ -135,12 +214,11 @@ MainTab:CreateToggle({
     end
 })
 
--- Jump Power (from Script 2)
 MainTab:CreateSlider({
     Name = "Jump Power",
-    Range = {0, 100},
+    Range = {0, 200},
     Increment = 1,
-    CurrentValue = 16,
+    CurrentValue = 50,
     Flag = "JumpPowerSlider",
     Callback = function(Value)
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
@@ -149,11 +227,9 @@ MainTab:CreateSlider({
     end
 })
 
--- Allow Jump Button (from Script 2)
 MainTab:CreateButton({
-    Name = "Allow Jump",
+    Name = "Allow Jump (Infinite)",
     Callback = function()
-        local UserInputService = game:GetService("UserInputService")
         UserInputService.JumpRequest:Connect(function()
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
                 LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
@@ -162,7 +238,6 @@ MainTab:CreateButton({
     end,
 })
 
--- ESP Toggle (combined from both)
 MainTab:CreateToggle({
     Name = "ESP (Green Highlights & Name Tags)",
     CurrentValue = false,
@@ -198,7 +273,7 @@ MainTab:CreateToggle({
                 text.TextStrokeTransparency = 0
                 text.Font = Enum.Font.SourceSansBold
                 text.TextScaled = true
-                text.Text = player.Name
+                text.Text = player.Name .. " [" .. math.floor((LocalPlayer.Character.HumanoidRootPart.Position - character.HumanoidRootPart.Position).Magnitude) .. "m]"
                 text.Parent = billboard
             end
         end
@@ -226,18 +301,23 @@ MainTab:CreateToggle({
     end
 })
 
--- Tracers Toggle (from Script 1)
 MainTab:CreateToggle({
     Name = "Tracers",
     CurrentValue = false,
     Flag = "TracersEnabled",
     Callback = function(state)
         tracersEnabled = state
+        if not state then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player.Character and player.Character:FindFirstChild("TracerLine") then
+                    player.Character.TracerLine:Destroy()
+                end
+            end
+        end
     end
 })
 
--- Instant Proximity Prompts (from Script 2)
-MainTab:CreateButton({
+ExtraTab:CreateButton({
     Name = "Instant Proximity Prompts",
     Callback = function()
         local function makeInstant(prompt)
@@ -252,8 +332,7 @@ MainTab:CreateButton({
     end,
 })
 
--- Teleport Buttons (from Script 2)
-MainTab:CreateButton({
+ExtraTab:CreateButton({
     Name = "Tp to Apt",
     Callback = function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -262,7 +341,7 @@ MainTab:CreateButton({
     end,
 })
 
-MainTab:CreateButton({
+ExtraTab:CreateButton({
     Name = "Tp to Cookers",
     Callback = function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -271,7 +350,7 @@ MainTab:CreateButton({
     end,
 })
 
-MainTab:CreateButton({
+ExtraTab:CreateButton({
     Name = "Tp to MM",
     Callback = function()
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -280,7 +359,41 @@ MainTab:CreateButton({
     end,
 })
 
--- RenderStepped for Tracers (from Script 1)
+ExtraTab:CreateToggle({
+    Name = "Fly Mode",
+    CurrentValue = false,
+    Flag = "FlyEnabled",
+    Callback = function(state)
+        if state then
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local bodyVelocity = Instance.new("BodyVelocity")
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
+                bodyVelocity.Parent = char.HumanoidRootPart
+
+                local flyConnection
+                flyConnection = RunService.RenderStepped:Connect(function()
+                    if not state then flyConnection:Disconnect() return end
+                    local moveDirection = Vector3.new()
+                    if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection = moveDirection + Camera.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection = moveDirection - Camera.CFrame.LookVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection = moveDirection - Camera.CFrame.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection = moveDirection + Camera.CFrame.RightVector end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDirection = moveDirection + Vector3.new(0, 1, 0) end
+                    if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDirection = moveDirection - Vector3.new(0, 1, 0) end
+                    bodyVelocity.Velocity = moveDirection * 50
+                end)
+            end
+        else
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local bv = LocalPlayer.Character.HumanoidRootPart:FindFirstChild("BodyVelocity")
+                if bv then bv:Destroy() end
+            end
+        end
+    end
+})
+
 RunService.RenderStepped:Connect(function()
     if tracersEnabled then
         for _, player in pairs(Players:GetPlayers()) do
@@ -301,6 +414,15 @@ RunService.RenderStepped:Connect(function()
                     beam.Attachment1 = att1
                     beam.Parent = player.Character
                 end
+            end
+        end
+    end
+
+    if espEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character.Head:FindFirstChild("NameTag") then
+                local text = player.Character.Head.NameTag.TextLabel
+                text.Text = player.Name .. " [" .. math.floor((LocalPlayer.Character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude) .. "m]"
             end
         end
     end
